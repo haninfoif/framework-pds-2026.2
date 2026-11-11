@@ -22,9 +22,10 @@ from app.services.aluno_service import AlunoService
 from app.services.coordenador_service import CoordenadorService
 from app.services.auth_service import AuthService
 from app.core.utils.arquivo_storage import ArquivoStorage
-from app.core.utils.pdf_extractor import PDFExtractor
+from app.framework import NucleoAnalise
+from app.saei.composicao import montar_nucleo
+from app.services.analise_service import AnaliseService
 from app.services.documento_permissions import DocumentoPolicy
-from app.services.ia.ia_client import GroqClient
 
 
 # Fábrica do serviço de usuário. O FastAPI chama get_db() para pegar a conexão com o banco, instancia o UsuarioRepository e o AlunoRepository com ela, e injeta os dois no UsuarioService. Quem pedir service = Depends(get_usuario_service) na rota já recebe o serviço pronto.
@@ -87,13 +88,26 @@ def get_aluno_service(db: Session = Depends(get_db)) -> AlunoService:
         aluno_repo=AlunoRepository(db)
     )
 
-# Construtor do Service de Aluno
-def get_documento_service(db: Session = Depends(get_db)) -> DocumentoService:
+# Construtor do núcleo de análise: única instância por requisição, já com a
+# sessão do banco usada pelo contexto e pelos repositórios.
+def get_nucleo(db: Session = Depends(get_db)) -> NucleoAnalise:
+    return montar_nucleo(db)
+
+# Construtor do Service de Documento (CRUD + análises delegadas ao núcleo)
+def get_documento_service(
+    db: Session = Depends(get_db),
+    nucleo: NucleoAnalise = Depends(get_nucleo)
+) -> DocumentoService:
     return DocumentoService(
         policy=DocumentoPolicy(),
-        pdf_extractor=PDFExtractor(),
-        ia_client=GroqClient(),
         storage=ArquivoStorage(),
         documento_repo=DocumentoRepository(db),
-        matricula_repo=MatriculaRepository(db)
+        matricula_repo=MatriculaRepository(db),
+        nucleo=nucleo
     )
+
+# Construtor do Service de análise de texto colado (sem documento persistido)
+def get_analise_service(
+    nucleo: NucleoAnalise = Depends(get_nucleo)
+) -> AnaliseService:
+    return AnaliseService(nucleo)
