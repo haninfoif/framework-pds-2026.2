@@ -1,0 +1,4 @@
+# Dependências de desenvolvimento (testes). A aplicação em si usa requirements.txt.
+-r requirements.txt
+pytest
+httpx

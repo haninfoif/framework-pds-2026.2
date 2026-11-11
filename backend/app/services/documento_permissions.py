@@ -5,14 +5,30 @@ class DocumentoPolicy:
     """Responsabilidade única: centralizar quem pode enviar, visualizar, baixar, excluir e resumir documentos."""
 
     @staticmethod
-    def pode_acessar_resumo(documento: Documento, usuario: Usuario) -> bool:
-        ids_permitidos = [
-            documento.matricula.aluno_id,             # O aluno da disciplina
-            documento.matricula.professor_id,         # O professor da disciplina
-            documento.matricula.aluno.tutor_id        # O coordenador tutor do aluno
-        ]
+    def pode_acessar_contexto(
+        usuario: Usuario,
+        aluno_id: int | None,
+        professor_id: int | None,
+        tutor_id: int | None = None,
+    ) -> bool:
+        """
+        Regra de vínculo da matrícula, sem depender do objeto ORM.
 
-        return usuario.id in ids_permitidos
+        É esta forma que a política do núcleo usa (o contexto chega como
+        dicionário), enquanto `pode_acessar_resumo` continua atendendo o CRUD.
+        """
+        ids_permitidos = [aluno_id, professor_id, tutor_id]
+        return usuario.id in [identificador for identificador in ids_permitidos if identificador is not None]
+
+    @staticmethod
+    def pode_acessar_resumo(documento: Documento, usuario: Usuario) -> bool:
+        aluno = getattr(documento.matricula, "aluno", None)
+        return DocumentoPolicy.pode_acessar_contexto(
+            usuario,
+            aluno_id=documento.matricula.aluno_id,          # O aluno da disciplina
+            professor_id=documento.matricula.professor_id,  # O professor da disciplina
+            tutor_id=getattr(aluno, "tutor_id", None),      # O coordenador tutor do aluno
+        )
 
     @staticmethod
     def pode_visualizar_matricula(usuario: Usuario, matricula) -> bool:

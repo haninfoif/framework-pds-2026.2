@@ -1,51 +1,64 @@
-# Orquestra o ciclo de vida dos documentos: valida a matrícula, delega as regras de permissão
-# à DocumentoPolicy, delega o disco ao ArquivoStorage e cuida do resumo com IA.
+# Orquestra o ciclo de vida dos documentos: valida a matrícula, delega as regras
+# de permissão à DocumentoPolicy, delega o disco ao ArquivoStorage e entrega as
+# análises de IA ao núcleo — que é quem executa o ciclo (PF1).
+#
+# O serviço não monta prompt, não extrai texto e não checa papel de IA: ele só
+# traduz o documento persistido em referências do contrato e devolve a projeção.
 
 from pathlib import Path
 
 from fastapi import UploadFile
 
-from app.core.utils.search_helper import buscar_links_por_termos
-from app.models import Usuario, Documento, TipoDocumento, UserRole
+from app.core.exceptions import PermissaoNegadaError, RecursoNaoEncontradoError
+from app.core.utils.arquivo_storage import ArquivoStorage
+from app.framework import ContextoRef, NucleoAnalise, ResultadoAnalise
+from app.models import Documento, TipoDocumento, Usuario
 from app.repositories.documento_repository import DocumentoRepository
 from app.repositories.matricula_repository import MatriculaRepository
-from app.schemas.documento_schemas import MatriculaDocumentosResponse, DocumentoResponse, ResumoIAResponse
-from app.core.exceptions import (
-    PermissaoNegadaError,
-    RecursoNaoEncontradoError
+from app.saei.analises import (
+    ANALISE_ACESSIBILIDADE,
+    ANALISE_ADAPTACAO,
+    ANALISE_RESUMO,
+    ANALISE_TUTORIA,
 )
-from app.core.utils.arquivo_storage import ArquivoStorage
-from app.core.utils.pdf_extractor import PDFExtractor
-from app.services.ia.ia_client import GroqClient
-from app.services.ia.resumo_strategies import ResumoStrategyFactory
+from app.saei.contexto import TIPO_CONTEXTO_MATRICULA
+from app.saei.papeis import papel_do_usuario
+from app.saei.refs import referencia_de_documento
+from app.schemas.documento_schemas import (
+    DocumentoResponse,
+    MatriculaDocumentosResponse,
+    ResumoIAResponse,
+)
+from app.schemas.ia_schemas import (
+    IAAdaptacaoInternal,
+    IAAcessibilidadeInternal,
+    TutorAlunoResponse,
+)
 from app.services.documento_permissions import DocumentoPolicy
-from app.core.utils.search_helper import buscar_links_por_termos, buscar_links_detalhados_por_termos
-from app.schemas.ia_schemas import TutorAlunoResponse, IAAdaptacaoInternal, IAAcessibilidadeInternal
+
 
 class DocumentoService:
     def __init__(
-        self, 
-        documento_repo: DocumentoRepository, 
+        self,
+        documento_repo: DocumentoRepository,
         matricula_repo: MatriculaRepository,
         policy: DocumentoPolicy,
-        pdf_extractor: PDFExtractor,
-        ia_client: GroqClient,
-        storage: ArquivoStorage
+        storage: ArquivoStorage,
+        nucleo: NucleoAnalise,
     ):
         self.documento_repo = documento_repo
         self.matricula_repo = matricula_repo
         self.policy = policy
-        self.pdf_extractor = pdf_extractor
-        self.ia_client = ia_client
         self.storage = storage
+        self.nucleo = nucleo
 
     # --- 1. UPLOAD DE DOCUMENTO ---
     def salvar_documento(
-        self, 
-        matricula_id: int, 
-        titulo: str, 
-        tipo: TipoDocumento, 
-        arquivo: UploadFile, 
+        self,
+        matricula_id: int,
+        titulo: str,
+        tipo: TipoDocumento,
+        arquivo: UploadFile,
         usuario_logado: Usuario
     ) -> Documento:
         # Busca a matrícula no banco
@@ -72,8 +85,8 @@ class DocumentoService:
 
     # --- 2. LISTAGEM EM DUAS LISTAS POR MATRÍCULA ---
     def listar_documentos_matricula(
-        self, 
-        matricula_id: int, 
+        self,
+        matricula_id: int,
         usuario_logado: Usuario
     ) -> MatriculaDocumentosResponse:
         matricula = self.matricula_repo.buscar_por_id(matricula_id)
@@ -105,8 +118,8 @@ class DocumentoService:
 
     # --- 3. DOWNLOAD DE DOCUMENTO ---
     def obter_documento_para_download(
-        self, 
-        documento_id: int, 
+        self,
+        documento_id: int,
         usuario_logado: Usuario
     ) -> tuple[str, str]:
         """
@@ -149,159 +162,52 @@ class DocumentoService:
 
     # --- 5. RESUMO COM IA ---
     def gerar_resumo(self, documento_id: int, usuario_logado: Usuario) -> ResumoIAResponse:
-        documento = self.documento_repo.buscar_por_id(documento_id)
-        if not documento:
-            raise RecursoNaoEncontradoError("Documento não encontrado.")
-
-        # Valida se quem está logado tem direito de ler o resumo
-        if not self.policy.pode_acessar_resumo(documento, usuario_logado):
-            raise PermissaoNegadaError("Você não tem permissão para acessar o resumo deste documento.")
-
-        # Abre o arquivo PDF no disco e extrai todo o conteúdo de texto legível
-        texto_cru = self.pdf_extractor.extrair_texto(documento.caminho_arquivo)
-        if not texto_cru:
-            raise ValueError("O documento está vazio ou é ilegível.")
-
-        # O Service agora delega completamente a inteligência de prompt e IA ao client
-        dados_ia = self.ia_client.processar_resumo_estruturado(texto_cru, documento.tipo)
-
-        # Se a IA sugeriu termos de estudo, faz buscas reais
-        termos = dados_ia.termos_busca
-        links_reais = buscar_links_por_termos(termos) if termos else []
-
-        # Monta a resposta para o front-end
-        return ResumoIAResponse(
-            titulo_documento=dados_ia.titulo_documento,
-            resumo_geral=dados_ia.resumo_geral,
-            pontos_chave=dados_ia.pontos_chave,
-            proximos_passos_ou_recomendacoes=dados_ia.proximos_passos_ou_recomendacoes,
-            links_estudo=links_reais,
-            aviso_ia=dados_ia.aviso_ia
-        )
+        documento = self._buscar_documento(documento_id)
+        return self._analisar(documento, ANALISE_RESUMO, usuario_logado).dados
 
     # --- 6. TUTOR DE ESTUDOS PERSONALIZADO (VISÃO DO ALUNO) ---
-    def gerar_tutoria_documento(self, documento_id: int, usuario_logado: Usuario) -> TutorAlunoResponse:
-        # apenas estudantes
-        if usuario_logado.role != UserRole.ALUNO:
-            raise PermissaoNegadaError("O Tutor de Estudos Personalizado é exclusivo para alunos.")
-        
-        # Confere se o documento da atividade existe no banco
-        documento = self.documento_repo.buscar_por_id(documento_id)
-        if not documento:
-            raise RecursoNaoEncontradoError("Atividade não encontrada.")
-
-        # Valida se quem está pedindo faz parte daquela matrícula (aluno, professor ou tutor)
-        if not self.policy.pode_acessar_resumo(documento, usuario_logado):
-            raise PermissaoNegadaError("Você não tem permissão para acessar esta atividade.")
-
-        # Extrai o texto bruto do PDF da atividade
-        texto_atividade = self.pdf_extractor.extrair_texto(documento.caminho_arquivo)
-        if not texto_atividade:
-            raise ValueError("O arquivo da atividade está vazio ou é ilegível.")
-
-        # Puxa as preferências de aprendizagem que o aluno salvou nesta matrícula
-        matricula = documento.matricula
-        preferencias = (matricula.preferencias_do_aluno or "").strip() or "Nenhuma preferência específica cadastrada."
-
-        # Procura se existem laudos médicos anexados na mesma matrícula para dar contexto ao Tutor
-        todos_docs = self.documento_repo.listar_por_matricula(matricula.id)
-        laudos_textos = []
-        for doc in todos_docs:
-            if doc.tipo == TipoDocumento.LAUDO_MEDICO:
-                try:
-                    txt = self.pdf_extractor.extrair_texto(doc.caminho_arquivo)
-                    if txt:
-                        laudos_textos.append(f"[{doc.titulo}]: {txt[:1000]}")
-                except Exception:
-                    # Se algum PDF de laudo falhar na leitura, ignora e segue sem travar a tutoria
-                    pass
-
-        resumo_laudo = "\n".join(laudos_textos) if laudos_textos else "Nenhum laudo médico anexado na disciplina."
-
-        # Envia tudo para a Groq gerar a explicação adaptada e os termos de pesquisa
-        dados_ia = self.ia_client.gerar_tutoria_aluno(
-            texto_atividade=texto_atividade,
-            resumo_laudo=resumo_laudo,
-            preferencias_aluno=preferencias
-        )
-
-        # Faz a busca no DuckDuckGo com os termos sugeridos pela IA para pegar links reais (título + url)
-        links_reais = buscar_links_detalhados_por_termos(
-            termos=dados_ia.termos_busca_duckduckgo,
-            resumo_laudo=resumo_laudo,
-            preferencias_aluno=preferencias
-        )
-
-        # Devolve o contrato completo para o front-end montar o modal do Tutor
-        return TutorAlunoResponse(
-            explicacao_pedagogica=dados_ia.explicacao_pedagogica,
-            passo_a_passo_resolucao=dados_ia.passo_a_passo_resolucao,
-            links_recomendados=links_reais
-        )
+    def gerar_tutoria_documento(
+        self, documento_id: int, usuario_logado: Usuario
+    ) -> TutorAlunoResponse:
+        documento = self._buscar_documento(documento_id)
+        return self._analisar(documento, ANALISE_TUTORIA, usuario_logado).dados
 
     # --- 7. ADAPTAÇÃO INTELIGENTE DE MATERIAIS (VISÃO DO PROFESSOR E COORDENADOR) ---
-    def gerar_adaptacao_documento(self, documento_id: int, usuario_logado: Usuario) -> IAAdaptacaoInternal:
-        # A adaptação de materiais é um guia metodológico para quem ensina: professores e coordenadores
-        if usuario_logado.role not in (UserRole.PROFESSOR, UserRole.COORDENADOR):
-            raise PermissaoNegadaError("A adaptação de materiais é exclusiva para professores e coordenadores.")
+    def gerar_adaptacao_documento(
+        self, documento_id: int, usuario_logado: Usuario
+    ) -> IAAdaptacaoInternal:
+        documento = self._buscar_documento(documento_id)
+        return self._analisar(documento, ANALISE_ADAPTACAO, usuario_logado).dados
 
-        # Confere se o documento (plano de aula ou atividade) existe no banco
+    # --- 8. TERMÔMETRO DE ACESSIBILIDADE DUA (PROFESSOR E COORDENADOR) ---
+    def gerar_avaliacao_acessibilidade_documento(
+        self, documento_id: int, current_user: Usuario
+    ) -> IAAcessibilidadeInternal:
+        documento = self._buscar_documento(documento_id)
+        return self._analisar(documento, ANALISE_ACESSIBILIDADE, current_user).dados
+
+    # --- apoio ---
+    def _buscar_documento(self, documento_id: int) -> Documento:
         documento = self.documento_repo.buscar_por_id(documento_id)
         if not documento:
             raise RecursoNaoEncontradoError("Documento não encontrado.")
+        return documento
 
-        # Valida se quem está pedindo faz parte daquela matrícula (aluno, professor ou coordenador)
-        if not self.policy.pode_acessar_resumo(documento, usuario_logado):
-            raise PermissaoNegadaError("Você não tem permissão para acessar este documento.")
-
-        # Extrai o texto bruto do PDF do material pedagógico
-        texto_material = self.pdf_extractor.extrair_texto(documento.caminho_arquivo)
-        if not texto_material:
-            raise ValueError("O arquivo do material está vazio ou é ilegível.")
-
-        # Procura laudos médicos anexados na mesma matrícula para dar contexto clínico à adaptação
-        todos_docs = self.documento_repo.listar_por_matricula(documento.matricula_id)
-        laudos_textos = []
-        for doc in todos_docs:
-            if doc.tipo == TipoDocumento.LAUDO_MEDICO:
-                try:
-                    txt = self.pdf_extractor.extrair_texto(doc.caminho_arquivo)
-                    if txt:
-                        laudos_textos.append(f"[{doc.titulo}]: {txt[:1000]}")
-                except Exception:
-                    # Se algum PDF de laudo falhar na leitura, ignora e segue sem travar a adaptação
-                    pass
-
-        resumo_laudo = "\n".join(laudos_textos) if laudos_textos else "Nenhum laudo médico anexado nesta matrícula."
-
-        # Envia tudo para a Groq montar o guia de adaptação (processamento 100% textual, sem busca externa)
-        return self.ia_client.adaptar_material(
-            texto_material=texto_material,
-            tipo_documento=documento.tipo,
-            resumo_laudo=resumo_laudo
+    def _analisar(
+        self, documento: Documento, analise, usuario_logado: Usuario
+    ) -> ResultadoAnalise:
+        """
+        Entrega ao núcleo o contrato inteiro: contexto que ancora, documentos de
+        entrada, análise e destinatário. Permissão, prompt, IA, âncora e projeção
+        são do núcleo.
+        """
+        return self.nucleo.executar(
+            contexto=ContextoRef(
+                tipo=TIPO_CONTEXTO_MATRICULA,
+                identificador=documento.matricula_id,
+                solicitante=usuario_logado,
+            ),
+            documentos=[referencia_de_documento(documento)],
+            analise=analise,
+            destinatario=papel_do_usuario(usuario_logado),
         )
-
-    def gerar_avaliacao_acessibilidade_documento(self, documento_id: int, current_user: Usuario) -> IAAcessibilidadeInternal:
-        """
-        Extrai o texto de um documento PDF cadastrado e executa a avaliação de acessibilidade DUA.
-        Exclusivo para PROFESSOR e COORDENADOR.
-        """
-        if current_user.role not in (UserRole.PROFESSOR, UserRole.COORDENADOR):
-            raise PermissaoNegadaError("A avaliação de acessibilidade é exclusiva para professores e coordenadores.")
-
-        # 1. Busca o documento no banco de dados usando o repositório correto
-        documento = self.documento_repo.buscar_por_id(documento_id)
-        if not documento:
-            raise RecursoNaoEncontradoError(f"Documento com ID '{documento_id}' não encontrado.")
-
-        # 2. Checa a permissão de acesso ao documento
-        if not self.policy.pode_acessar_resumo(documento, current_user):
-            raise PermissaoNegadaError("Você não tem permissão para acessar este documento.")
-
-        # 3. Extrai o texto do PDF usando o extrator injetado na classe
-        texto_extraido = self.pdf_extractor.extrair_texto(documento.caminho_arquivo)
-        if not texto_extraido or len(texto_extraido.strip()) < 10:
-            raise ValueError("O arquivo do documento está vazio ou contém texto ilegível para análise.")
-
-        # 4. Chama a IA reutilizando a instância self.ia_client
-        return self.ia_client.avaliar_acessibilidade(texto_material=texto_extraido)
