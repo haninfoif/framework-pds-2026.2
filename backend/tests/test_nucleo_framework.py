@@ -393,7 +393,8 @@ def test_ciclo_completo_saei_com_papel_autorizado():
     assert resultado.dados.aviso_ia.strip()
     assert resultado.papel == PAPEL_ALUNO
     assert registrador.eventos[-1].sucesso is True
-    assert registrador.eventos[-1].ancoras >= 3
+    # Só `pontos_chave` é citação direta no resumo: é a única âncora conferida.
+    assert registrador.eventos[-1].ancoras == 1
 
 
 def test_papel_sem_projecao_nao_recebe():

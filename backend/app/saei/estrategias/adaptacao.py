@@ -10,12 +10,13 @@ _CONTRATO_ADAPTACAO = """{
   "mudancas_sugeridas": [
     {"secao": "Nome da seção do texto original", "acao": "Ação concreta e específica", "ancora": {"documento": "título do material", "pagina": 1, "trecho": "cópia literal"}}
   ],
-  "justificativa_inclusiva": {"texto": "Um parágrafo único e direto", "ancora": {"documento": "título do material", "pagina": 1, "trecho": "cópia literal"}},
+  "justificativa_inclusiva": "Um parágrafo único e direto",
   "dicas_de_abordagem": [
-    {"texto": "Dica prática de mediação", "ancora": {"documento": "título do material", "pagina": 2, "trecho": "cópia literal"}}
+    "Dica prática de mediação",
+    "Outra dica prática de mediação"
   ]
 }
-Forneça de 3 a 5 ações em "mudancas_sugeridas", todas ligadas a tópicos que existam no texto."""
+Forneça de 3 a 5 ações em "mudancas_sugeridas", todas ligadas a tópicos que existam no texto. Apenas "mudancas_sugeridas" cita o original e leva âncora; justificativa e dicas são texto simples."""
 
 _REGRAS_DE_OURO = (
     "REGRAS DE OURO:\n"

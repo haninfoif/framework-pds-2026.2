@@ -35,6 +35,6 @@ class AvaliacaoAcessibilidadeDUA(EstrategiaSAEI):
   "pontos_de_melhoria": [
     {"texto": "Uso de termos técnicos sem explicação prévia", "ancora": {"documento": "título do material", "pagina": 1, "trecho": "cópia literal"}}
   ],
-  "sugestao_imediata": {"texto": "Adicione um pequeno glossário no início", "ancora": {"documento": "título do material", "pagina": 1, "trecho": "cópia literal"}}
+  "sugestao_imediata": "Adicione um pequeno glossário no início"
 }
-As listas não podem vir vazias."""
+As listas não podem vir vazias. Pontos positivos e de melhoria citam o material e levam âncora; a sugestão imediata é orientação e vai sem âncora."""

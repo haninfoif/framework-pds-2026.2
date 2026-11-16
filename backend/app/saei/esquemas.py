@@ -30,10 +30,30 @@ class TrechoCitado(BaseModel):
 
 
 class ItemAncorado(BaseModel):
-    """Afirmação + prova de origem. Item sem âncora não passa na validação."""
+    """Citação direta: afirmação + prova de origem. Sem âncora não passa."""
 
     texto: str = Field(min_length=1)
     ancora: TrechoCitado
+
+
+class ItemDerivado(BaseModel):
+    """
+    Síntese, recomendação ou orientação — não é cópia do documento.
+
+    Não carrega âncora de propósito: conferir citação é conferir o que veio do
+    original, não o que o modelo concluiu a partir dele. Por isso não entra em
+    `ancoras()` e o verificador do PF3 não tem o que reprovar aqui.
+    """
+
+    texto: str = Field(min_length=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _aceitar_texto_simples(cls, valor):
+        """O modelo pode devolver só a string; normalizamos para {"texto": ...}."""
+        if isinstance(valor, str):
+            return {"texto": valor}
+        return valor
 
 
 class MudancaAncorada(BaseModel):
@@ -52,17 +72,23 @@ def _ancoras(itens: list, documento_padrao: str) -> list[Ancora]:
 
 
 class ResumoInterno(SchemaInterno):
+    """
+    Resumo: só `pontos_chave` é citação direta e por isso carrega âncora.
+
+    `resumo_geral` sintetiza e `proximos_passos_ou_recomendacoes` orienta;
+    nenhum dos dois tem origem literal no documento. No laudo, por exemplo, a
+    frase "Nenhuma recomendação médica explícita no laudo" é uma declaração de
+    ausência — exigir âncora dela reprovaria a análise por construção.
+    """
+
     titulo_documento: str
-    resumo_geral: ItemAncorado
+    resumo_geral: ItemDerivado
     pontos_chave: list[ItemAncorado] = Field(min_length=1)
-    proximos_passos_ou_recomendacoes: ItemAncorado
+    proximos_passos_ou_recomendacoes: ItemDerivado
     termos_busca: list[str] = Field(default_factory=list)
 
     def ancoras(self, documento_padrao: str = "") -> list[Ancora]:
-        return _ancoras(
-            [self.resumo_geral, *self.pontos_chave, self.proximos_passos_ou_recomendacoes],
-            documento_padrao,
-        )
+        return _ancoras(self.pontos_chave, documento_padrao)
 
     def termos_de_busca(self) -> list[str]:
         return list(self.termos_busca)
@@ -88,15 +114,16 @@ class ResumoLaudoInterno(ResumoInterno):
 
 
 class AdaptacaoInterna(SchemaInterno):
+    # A mudança cita a seção do original: é citação. A justificativa argumenta e
+    # as dicas orientam — campos derivados, sem âncora.
     mudancas_sugeridas: list[MudancaAncorada] = Field(min_length=1)
-    justificativa_inclusiva: ItemAncorado
-    dicas_de_abordagem: list[ItemAncorado] = Field(min_length=1)
+    justificativa_inclusiva: ItemDerivado
+    dicas_de_abordagem: list[ItemDerivado] = Field(min_length=1)
 
     def ancoras(self, documento_padrao: str = "") -> list[Ancora]:
         return [
-            *[mudanca.ancora.para_ancora(documento_padrao) for mudanca in self.mudancas_sugeridas],
-            self.justificativa_inclusiva.ancora.para_ancora(documento_padrao),
-            *_ancoras(self.dicas_de_abordagem, documento_padrao),
+            mudanca.ancora.para_ancora(documento_padrao)
+            for mudanca in self.mudancas_sugeridas
         ]
 
 
@@ -104,15 +131,16 @@ class AdaptacaoInterna(SchemaInterno):
 
 
 class TutorInterno(SchemaInterno):
-    explicacao_pedagogica: ItemAncorado
-    passo_a_passo_resolucao: list[ItemAncorado] = Field(min_length=1)
-    termos_busca_duckduckgo: list[str] = Field(default_factory=list)
+    """
+    Tutoria: explicação e etapas são mediação, não cópia do enunciado.
 
-    def ancoras(self, documento_padrao: str = "") -> list[Ancora]:
-        return _ancoras(
-            [self.explicacao_pedagogica, *self.passo_a_passo_resolucao],
-            documento_padrao,
-        )
+    Nenhum campo é citação direta, então `ancoras()` fica vazio e o PF3 não
+    confere nada aqui — o verificador só atua onde o schema declara citação.
+    """
+
+    explicacao_pedagogica: ItemDerivado
+    passo_a_passo_resolucao: list[ItemDerivado] = Field(min_length=1)
+    termos_busca_duckduckgo: list[str] = Field(default_factory=list)
 
     def termos_de_busca(self) -> list[str]:
         return list(self.termos_busca_duckduckgo)
@@ -123,16 +151,14 @@ class TutorInterno(SchemaInterno):
 
 class AcessibilidadeInterna(SchemaInterno):
     score_acessibilidade: int = Field(ge=0, le=100)
+    # Pontos positivos e de melhoria apontam para o material (citação); a
+    # sugestão imediata é orientação prática do professor, sem origem literal.
     pontos_positivos: list[ItemAncorado] = Field(min_length=1)
     pontos_de_melhoria: list[ItemAncorado] = Field(min_length=1)
-    sugestao_imediata: ItemAncorado
+    sugestao_imediata: ItemDerivado
 
     def ancoras(self, documento_padrao: str = "") -> list[Ancora]:
         return _ancoras(
-            [
-                *self.pontos_positivos,
-                *self.pontos_de_melhoria,
-                self.sugestao_imediata,
-            ],
+            [*self.pontos_positivos, *self.pontos_de_melhoria],
             documento_padrao,
         )

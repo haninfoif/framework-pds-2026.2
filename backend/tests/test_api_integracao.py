@@ -175,10 +175,15 @@ def test_aluno_nao_acessa_adaptacao(cliente, monkeypatch):
 
 
 def test_ancora_inventada_nao_chega_ao_cliente(cliente, monkeypatch):
-    autenticar(UserRole.ALUNO)
-    provedor_de(monkeypatch, resposta_tutor("frase que não existe no texto enviado"))
+    # A adaptação cita a seção do original; a tutoria não tem campo de citação,
+    # então a garantia é verificada onde existe trecho a conferir.
+    autenticar(UserRole.PROFESSOR)
+    provedor_de(monkeypatch, resposta_adaptacao("frase que não existe no texto enviado"))
 
-    resposta = cliente.post("/ia/tutor-aluno", json={"texto_atividade": TEXTO})
+    resposta = cliente.post(
+        "/ia/adaptar-material",
+        json={"texto_material": TEXTO, "tipo_documento": "PLANO_DE_AULA"},
+    )
 
     assert resposta.status_code == 502
     assert "âncora" in resposta.json()["detail"] or "trecho" in resposta.json()["detail"]

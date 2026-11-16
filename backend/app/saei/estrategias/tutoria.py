@@ -32,10 +32,8 @@ class TutoriaAluno(EstrategiaSAEI):
         "ou vídeos curtos em vez de textos enciclopédicos extensos)."
     )
     contrato_de_resposta = """{
-  "explicacao_pedagogica": {"texto": "Mediação pedagógica personalizada", "ancora": {"documento": "título da atividade", "pagina": 1, "trecho": "cópia literal"}},
-  "passo_a_passo_resolucao": [
-    {"texto": "Etapa 1", "ancora": {"documento": "título da atividade", "pagina": 1, "trecho": "cópia literal"}},
-    {"texto": "Etapa 2", "ancora": {"documento": "título da atividade", "pagina": 1, "trecho": "cópia literal"}}
-  ],
+  "explicacao_pedagogica": "Mediação pedagógica personalizada",
+  "passo_a_passo_resolucao": ["Etapa 1", "Etapa 2"],
   "termos_busca_duckduckgo": ["Termo de busca 1", "Termo de busca 2"]
-}"""
+}
+Nenhum campo é cópia literal do documento: não inclua âncoras."""

@@ -1,6 +1,6 @@
 # Estratégias de resumo (V2). Os prompts vêm dos antigos `resumo_strategies.py`;
-# o que mudou é que agora cada item exige âncora estruturada e o texto do
-# documento chega com marcador de página.
+# o que mudou é que os pontos-chave exigem âncora estruturada (são citação) e o
+# texto do documento chega com marcador de página.
 
 from __future__ import annotations
 
@@ -9,15 +9,15 @@ from app.saei.estrategias.base import EstrategiaSAEI
 
 CONTRATO_RESUMO = """{
   "titulo_documento": "Um título curto para o documento",
-  "resumo_geral": {"texto": "O resumo principal", "ancora": {"documento": "título do documento", "pagina": 1, "trecho": "cópia literal"}},
+  "resumo_geral": "O resumo principal, em texto corrido",
   "pontos_chave": [
     {"texto": "Ponto 1", "ancora": {"documento": "título do documento", "pagina": 1, "trecho": "cópia literal"}},
     {"texto": "Ponto 2", "ancora": {"documento": "título do documento", "pagina": 2, "trecho": "cópia literal"}}
   ],
-  "proximos_passos_ou_recomendacoes": {"texto": "O que deve ser feito a partir daqui", "ancora": {"documento": "título do documento", "pagina": 2, "trecho": "cópia literal"}},
+  "proximos_passos_ou_recomendacoes": "O que deve ser feito a partir daqui",
   "termos_busca": ["Tópico Principal 1 Khan Academy", "Tópico Principal 2 Brasil Escola"]
 }
-Devolva no mínimo um item em "pontos_chave". Se não houver tópicos acadêmicos, devolva [] em "termos_busca"."""
+Devolva no mínimo um item em "pontos_chave". Só os itens de "pontos_chave" são citação direta e levam "ancora"; "resumo_geral" e "proximos_passos_ou_recomendacoes" são texto simples, sem âncora. Se não houver tópicos acadêmicos, devolva [] em "termos_busca"."""
 
 
 class ResumoLaudoMedico(EstrategiaSAEI):

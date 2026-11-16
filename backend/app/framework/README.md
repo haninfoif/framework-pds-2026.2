@@ -27,7 +27,7 @@ A aplicação chama uma vez. Nas lacunas, o núcleo chama o código da aplicaç�
 |---|---|---|
 | **PF1** `nucleo.py` | executa o ciclo na ordem fixa (contexto → portão → normalização → pacote → estratégia → IA → schema → âncoras → evidência → projeção → aviso → registro) | cada estratégia é executada contra um pacote de prova no boot; se o prompt não contiver o documento-alvo e a base de diretrizes, o núcleo não inicia |
 | **PF2** `portao.py` | autoriza antes de ler conteúdo e projeta por audiência | política é consultada antes da normalização; a saída é o schema da audiência (sem schema, sem entrega) |
-| **PF3** `normalizacao.py` | texto canônico por página + âncora estruturada | cada trecho é conferido contra a página; item sem âncora válida reprova a análise inteira |
+| **PF3** `normalizacao.py` | texto canônico por página + âncora estruturada | cada citação é conferida contra a página; trecho que não existe no original reprova a análise inteira (campo de síntese/recomendação não é citação e não tem âncora) |
 | **PF4** `evidencia.py` | termos no modelo, fontes no núcleo; limite de uso sempre presente | URL que não veio de um resolvedor (e não é citação do original) é recusada; aviso vazio é erro de instanciação |
 
 ## Slots obrigatórios (sem default)

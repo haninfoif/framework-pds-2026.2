@@ -12,13 +12,14 @@ import json
 from app.framework import PacoteAnalise, Prompt
 from app.framework.estrategias import BaseEstrategia
 
-BLOCO_ANCORAGEM = """--- ANCORAGEM OBRIGATÓRIA (verificada automaticamente pelo sistema) ---
-Todo campo ancorado é um objeto com "texto" (a afirmação) e "ancora".
-A âncora tem sempre esta forma:
+BLOCO_ANCORAGEM = """--- ANCORAGEM DAS CITAÇÕES (verificada automaticamente pelo sistema) ---
+Só os campos que copiam o documento são citações e levam âncora. Campo de síntese,
+recomendação ou orientação é texto simples, sem âncora.
+Toda citação é um objeto com "texto" (a afirmação) e "ancora", assim:
   {"documento": "<título exato do documento citado>", "pagina": <inteiro do marcador [p. N]>, "trecho": "<cópia LITERAL do original>"}
 Regras:
 1. O "trecho" é conferido contra o documento original: copie sem parafrasear, sem traduzir e sem corrigir.
-2. Item cuja âncora não exista no texto invalida a resposta inteira.
+2. Citação cujo trecho não exista no texto invalida a resposta inteira.
 3. Não escreva URLs, links, artigos de lei nem números de processo. Se precisar de material externo, use apenas a lista de termos de busca."""
 
 

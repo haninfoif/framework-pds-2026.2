@@ -36,6 +36,17 @@ def normalizar_texto(texto: str) -> str:
     return _ESPACOS.sub(" ", apenas_texto).strip()
 
 
+def _compacto(texto: str) -> str:
+    """
+    Mesma sequência, tudo grudado: só letras e dígitos.
+
+    A extração de PDF perde o espaço entre palavras em algumas páginas
+    ("a)Asraízesdafunção.b)Ascoordenadas..."); nesse caso nem o trecho literal
+    nem a cobertura de tokens casam, embora o texto seja o mesmo.
+    """
+    return re.sub(r"[^a-z0-9]+", "", normalizar_texto(texto))
+
+
 class Normalizador:
     """
     Converte DocumentoRef em DocumentoNormalizado usando o extrator que declara
@@ -132,16 +143,23 @@ class VerificadorAncoras:
     """
     Confere cada âncora contra o texto canônico por página.
 
-    Aceita duas formas de conferência, ambas contra o original:
+    Aceita três formas de conferência, todas contra o original:
       - o trecho normalizado aparece literalmente na página; ou
+      - o trecho compacto (só letras/dígitos) aparece no texto compacto da
+        página, tolerando espaço perdido na extração do PDF; ou
       - o trecho cobre pelo menos `cobertura_minima` dos tokens da página
         (tolera uma palavra copiada com erro, não tolera frase inventada).
     """
 
-    def __init__(self, cobertura_minima: float = 0.85) -> None:
+    def __init__(self, cobertura_minima: float = 0.85, compacto_minimo: int = 12) -> None:
         if not 0 < cobertura_minima <= 1:
             raise ValueError("cobertura_minima deve estar entre 0 e 1.")
+        if compacto_minimo < 0:
+            raise ValueError("compacto_minimo não pode ser negativo.")
         self._cobertura_minima = cobertura_minima
+        # Abaixo disso a comparação compacta casaria em qualquer lugar: um trecho
+        # curto demais precisa passar pela cobertura de tokens.
+        self._compacto_minimo = compacto_minimo
 
     def verificar(
         self,
@@ -152,11 +170,11 @@ class VerificadorAncoras:
     ) -> int:
         ancoras = dados.ancoras(documento_padrao)
         if not ancoras:
-            raise AncoragemInvalidaError(
-                "O resultado não trouxe nenhuma âncora verificável"
-                + (f" (estratégia '{estrategia}')" if estrategia else "")
-                + ". Todo item precisa citar documento, página e trecho do original."
-            )
+            # Quem decide onde há citação direta é o schema (V4): os campos que
+            # são síntese ou recomendação não entram em `ancoras()`. Sem citação
+            # declarada não existe âncora a conferir — o verificador não inventa
+            # uma exigência que o contrato da análise não faz.
+            return 0
 
         for ancora in ancoras:
             documento = _localizar(documentos, ancora.documento)
@@ -188,6 +206,10 @@ class VerificadorAncoras:
             return False
         pagina = normalizar_texto(texto_pagina)
         if alvo in pagina:
+            return True
+
+        compacto = _compacto(trecho)
+        if len(compacto) >= self._compacto_minimo and compacto in _compacto(texto_pagina):
             return True
 
         tokens_do_trecho = [token for token in alvo.split(" ") if len(token) > 2]
