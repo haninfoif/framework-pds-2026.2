@@ -48,3 +48,16 @@ Depois acesse:
 | Swagger  | http://localhost:8000/docs   |
 
 Para parar: `docker compose down`. Mudanças no `.env` exigem recriar o container do backend: `docker compose up -d` (sem `--build`, basta recriar).
+
+## Núcleo de análise (framework)
+
+As quatro análises de IA (resumo, tutor, adaptação e termômetro DUA) rodam sobre um núcleo extraído do SAEI: `backend/app/framework/` guarda o contrato e o ciclo, e `backend/app/saei/` é a instância do domínio. Rotas, payloads e respostas continuam os mesmos. Contrato, pontos fixos, slots e o passo a passo de instanciação estão em [`backend/app/framework/README.md`](backend/app/framework/README.md).
+
+## Testes
+
+```bash
+cd backend
+python -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest
+```
